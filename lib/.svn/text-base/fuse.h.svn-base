@@ -1,7 +1,0 @@
-#ifndef _FUSE_H_
-#define _FUSE_H_
-
-void init(char *);
-void run();
-
-#endif
