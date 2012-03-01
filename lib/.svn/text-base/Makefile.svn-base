@@ -1,0 +1,40 @@
+include ../../Makefile.inc
+#suffixes: s1s2:
+#	commands to get s2 from s1
+#	.SUFFIXES: .o .c
+#	.c.o:
+#		$(CC) $(CFLAGS) -c $<	
+
+vpath %.h $(INCLUDE_LIB)
+vpath %.h $(INCLUDE_FUSE)
+vpath %.h $(INCLUDE_META)
+
+OBJS = fuse_epoll.o fuse_error.o rb_tree.o fuse_rs.o fuse_dreq.o heap.o
+
+lib_lib.a($OBJS):$(OBJS)
+	$(AR) $(ARFLAGS) $(LIB_LIB) $(OBJS)
+
+fuse_config.o:fuse_config.c fuse_i.h fuse_common.h
+	$(CC) -I $(INCLUDE_LIB) -I $(INCLUDE_FUSE) -c $<
+
+fuse_epoll.o:fuse_epoll.c fuse_sock.h fuse_error.h
+	$(CC) -I $(INCLUDE_LIB) -I $(INCLUDE_FUSE) -c $<
+
+fuse_error.o:fuse_error.c fuse_error.h fuse_sock.h fuse_common.h fuse_dreq.h
+	$(CC) -I $(INCLUDE_LIB) -c $<
+
+fuse_sock.o:fuse_error.h fuse_sock.c fuse_sock.h
+	$(CC) -I $(INCLUDE_LIB) -I $(INCLUDE_FUSE) -I $(INCLUDE_META) \
+-c fuse_sock.c
+
+rb_tree.o:rb_tree.c rb_tree.h
+	$(CC) -I $(INCLUDE_LIB) -c $<
+fuse_rs.o:fuse_rs.c fuse_rs.h list.h fuse_sock.h
+	$(CC) -I $(INCLUDE_LIB)  -c $<
+
+fuse_dreq.o:fuse_dreq.c fuse_dreq.h fuse_sock.h fuse_epoll.h
+	$(CC) -I $(INCLUDE_LIB)  -c $<
+heap.o:heap.h heap.c
+	$(CC) -I $(INCLUDE_LIB) -c heap.c
+clean:
+	-rm *.o

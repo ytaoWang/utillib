@@ -1,0 +1,78 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  fuse_dreq.c
+ *
+ *    Description:  fuse disk req operation 
+ *
+ *        Version:  1.0
+ *        Created:  10/18/2011 01:33:07 PM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  Heaven (), zhanwenhan@163.com
+ *        Company:  NDSL
+ *
+ * =====================================================================================
+ */
+#include "fuse_dreq.h"
+#include "fuse_sock.h"
+#include "fuse_epoll.h"
+
+#include <assert.h>
+#include <stdlib.h>
+
+static uint64_t unique = 1;
+uint64_t disk_get_unique()
+{
+    return unique++;
+}
+
+void disk_free_req(struct disk_req *req)
+{
+
+      assert(1 == list_empty(&req->req_list));
+
+      --req->ctr;
+      assert(req->ctr == 0);
+
+      if(req->in) free(req->in);
+      req->in = NULL;
+
+      if(req->out) free(req->out);
+      req->out = NULL;
+
+      list_del_element(&req->list);
+
+      free(req);
+}
+
+int disk_allocate_req(struct fuse_sock *next,enum disk_type type,void *owner,struct disk_req **_req)
+{
+    struct disk_req *req = NULL;
+    if(!(req = calloc(1,sizeof(struct disk_req)))) return -1;
+
+    req->unique = get_unique();
+    req->type = type;
+    req->state = DISK_REQ_SENT;
+    req->owner = owner;
+    req->ctr = 1;
+    req->in = NULL;
+    req->out = NULL;
+    req->error = 0;
+    list_init(&req->list);
+    list_init(&req->req_list);
+    req->next = next;
+    //list_add_tail(&next->pending,&req->list);
+
+    *_req  = req;
+
+    return 0;
+}
+
+void disk_send(struct fuse_sock *fs,struct disk_req *req)
+{
+    req->state = DISK_REQ_RUNNING;
+    list_move(&fs->ready,&req->list);
+    fuse_open_write(fs);
+}

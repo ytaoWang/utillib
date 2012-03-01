@@ -1,0 +1,31 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  test_error1.c
+ *
+ *    Description:  test fuse_error1.c
+ *
+ *        Version:  1.0
+ *        Created:  11/03/2011 11:04:58 PM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  Heaven (), zhanwenhan@163.com
+ *        Company:  NDSL
+ *
+ * =====================================================================================
+ */
+#include "fuse_error.h"
+#include <stdio.h>
+
+int main()
+{
+    fuse_error("hello,world");
+    fuse_warn("hello,world:%d",4);
+    fuse_syscall("test");
+    fuse_state("it's state");
+    fuse_fatal("it's fatal error.");
+    
+    return 1;
+}
+

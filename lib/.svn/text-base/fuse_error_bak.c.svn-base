@@ -1,0 +1,228 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  fuse_error.c
+ *
+ *    Description:  fuse error to log or print
+ *
+ *        Version:  1.0
+ *        Created:  08/22/2011 09:56:38 PM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  wyt (none), hancongduan@uestc.edu.cn
+ *        Company:  ndsl
+ *
+ * =====================================================================================
+ */
+
+#include "fuse_error.h"
+
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <errno.h>
+#include <stdlib.h>
+
+
+
+/*
+ * formatting code
+ * 0 All attributes off
+ * 1 Bold on
+ * 4 Underscore(on monochrome display adapter only)
+ * 5 Blink on
+ * 7 Reverse video on
+ * 8 Concealed on
+ * Foreground colors
+ * 30 Black 31 Red 32 Green 33 Yellow 34 Blue 35 Magenta 36 Cyan 37 white
+ * Background colors
+ * 40 Black 41 red 42 Green 43 Yellow 44 Blue 45 Magenta 46 Cyan 47 white
+ * */
+
+#define RESET 	"\033[0m"
+#define BLACK	"\033[30m"
+#define RED	"\033[31m"
+#define GREEN	"\033[32m"
+#define YELLOW	"\033[33m"
+#define BLUE	"\033[34m"
+#define MAGENTA	"\033[35m"
+#define CYAN	"\033[36m"
+#define WHITE	"\033[37m"
+
+#define BOLDBLACK	"\033[1;30m"
+#define BOLDRED		"\033[1;31m"
+#define BOLDGREEN	"\033[1;32m"
+#define BOLDYELLOW	"\033[1;33m"
+#define BOLDBLUE	"\033[1;34m"
+#define BOLDMAGENTA	"\033[1;35m"
+#define BOLDCYAN	"\033[1;36m"
+#define BOLDWHITE	"\033[1;37m"
+
+#define BLINK_BLACK_RED	 "\033[1;5;30;41m"
+#define BLINK_GREEN_RED	 "\033[1;5;31;41m"
+#define BLINK_YELLOW_RED "\033[1;5;33;41m"
+#define BLINK_BLUE_RED	 "\033[1;5;34;41m"
+#define BLINK_MAGENTA_RED	"\033[1;5;35;41m"
+#define BLINK_CYAN_RED		"\033[1;5;36;41m"
+#define BLINK_WHITE_RED		"\033[1;5;37;41m"
+
+
+#define BLACK_RED	 "\033[1;30;41m"
+#define GREEN_RED	 "\033[1;31;41m"
+#define YELLOW_RED "\033[1;33;41m"
+#define BLUE_RED	 "\033[1;34;41m"
+#define MAGENTA_RED	"\033[1;35;41m"
+#define CYAN_RED		"\033[1;36;41m"
+#define WHITE_RED		"\033[1;37;41m"
+#define WHITE_BLUE		"\033[1;37;44m"
+
+#define RED_MSG(str)	printf(BLINK_RED_BLACK"%s"RESET"\n",str);
+
+#define ERRORLINE	1025
+
+/* --------------------*/
+/**
+* @Brief record common error
+*
+* @Param fmt
+* @Param ...
+*/
+/* ---------------------*/
+void fuse_error(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+	
+	fprintf(stderr,BLUE_RED);
+	fprintf(stderr,"%s",buf);
+	fprintf(stderr,RESET);
+	fprintf(stderr,"\n");
+	
+	va_end(ap);
+}
+
+void fuse_syscall(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+
+	fprintf(stderr,BLACK_RED);
+	fprintf(stderr,"%s:%s",buf,strerror(errno));
+	fprintf(stderr,RESET);
+	fprintf(stderr,"\n");
+
+	va_end(ap);
+}
+
+/* --------------------*/
+/**
+* @Brief print fatal error and exit
+*
+* @Param fmt
+* @Param ...
+*/
+/* ---------------------*/
+void fuse_fatal(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+
+	fprintf(stderr,GREEN_RED);
+	fprintf(stderr,"%s:%s",buf,strerror(errno));
+	fprintf(stderr,RESET);
+	fprintf(stderr,"\n");
+	
+	va_end(ap);
+	exit(-1);
+}
+
+void fuse_state(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+	
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+
+	fprintf(stdout,BLACK);
+	fprintf(stdout,"%s",buf);
+	fprintf(stdout,RESET);
+	fprintf(stdout,"\n");
+
+	va_end(ap);
+}
+
+void fuse_debug(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+
+//	memset(buf,0,ERRORLINE);
+/*	va_start(ap,fmt);
+	
+	vsnprintf(buf,ERRORLINE,fmt,ap);
+	
+	strcat(buf,"\n");
+	fflush(stdout);
+
+	fputs(buf,stderr);
+*/
+/*	fprintf(stdout,WHITE_BLUE);
+	fprintf(stdout,"%s",buf);
+	fprintf(stdout,RESET);
+*/	
+//	fflush(NULL);//flush all stream
+	
+//	va_end(ap);
+}
+
+void fuse_warn(const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+
+//	fprintf(stdout,WHITE_BLUE);
+	fprintf(stdout,"WARNING::%s",buf);
+//	fprintf(stdout,RESET);
+	fprintf(stdout,"\n");
+
+	va_end(ap);
+}
+
+void fuse_syscall_exit(const char *fmt,...)
+{
+
+	char buf[ERRORLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+
+	fprintf(stderr,BLACK_RED);
+	fprintf(stderr,"%s:%s",buf,strerror(errno));
+	fprintf(stderr,RESET);
+	fprintf(stderr,"\n");
+	
+	va_end(ap);
+	exit(-1);
+
+}

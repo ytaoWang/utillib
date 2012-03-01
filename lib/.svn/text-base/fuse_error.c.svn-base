@@ -1,0 +1,526 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  fuse_error.c
+ *
+ *    Description:  fuse error to log or print
+ *
+ *        Version:  1.0
+ *        Created:  08/22/2011 09:56:38 PM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  wyt (none), hancongduan@uestc.edu.cn
+ *        Company:  ndsl
+ *
+ * =====================================================================================
+ */
+
+#include "fuse_error.h"
+#include "fuse_sock.h"
+#include "fuse_common.h"
+#include "fuse_dreq.h"
+
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <errno.h>
+#include <stdlib.h>
+
+
+
+/*
+ * formatting code
+ * 0 All attributes off
+ * 1 Bold on
+ * 4 Underscore(on monochrome display adapter only)
+ * 5 Blink on
+ * 7 Reverse video on
+ * 8 Concealed on
+ * Foreground colors
+ * 30 Black 31 Red 32 Green 33 Yellow 34 Blue 35 Magenta 36 Cyan 37 white
+ * Background colors
+ * 40 Black 41 red 42 Green 43 Yellow 44 Blue 45 Magenta 46 Cyan 47 white
+ * */
+
+#define RESET 	"\033[0m"
+#define BLACK	"\033[30m"
+#define RED	"\033[31m"
+#define GREEN	"\033[32m"
+#define YELLOW	"\033[33m"
+#define BLUE	"\033[34m"
+#define MAGENTA	"\033[35m"
+#define CYAN	"\033[36m"
+#define WHITE	"\033[37m"
+
+#define BOLDBLACK	"\033[1;30m"
+#define BOLDRED		"\033[1;31m"
+#define BOLDGREEN	"\033[1;32m"
+#define BOLDYELLOW	"\033[1;33m"
+#define BOLDBLUE	"\033[1;34m"
+#define BOLDMAGENTA	"\033[1;35m"
+#define BOLDCYAN	"\033[1;36m"
+#define BOLDWHITE	"\033[1;37m"
+
+#define BLINK_BLACK_RED	 "\033[1;5;30;41m"
+#define BLINK_GREEN_RED	 "\033[1;5;31;41m"
+#define BLINK_YELLOW_RED "\033[1;5;33;41m"
+#define BLINK_BLUE_RED	 "\033[1;5;34;41m"
+#define BLINK_MAGENTA_RED	"\033[1;5;35;41m"
+#define BLINK_CYAN_RED		"\033[1;5;36;41m"
+#define BLINK_WHITE_RED		"\033[1;5;37;41m"
+
+
+#define BLACK_RED	 "\033[1;30;41m"
+#define GREEN_RED	 "\033[1;31;41m"
+#define YELLOW_RED "\033[1;33;41m"
+#define BLUE_RED	 "\033[1;34;41m"
+#define MAGENTA_RED	"\033[1;35;41m"
+#define CYAN_RED		"\033[1;36;41m"
+#define WHITE_RED		"\033[1;37;41m"
+#define WHITE_BLUE		"\033[1;37;44m"
+
+#define RED_MSG(str)	printf(BLINK_RED_BLACK"%s"RESET"\n",str);
+
+#define ERRORLINE	512
+#define MAXLINE     1024
+
+static int debug,lfd;
+
+
+void set_debug_mode(int _debug,int _fd) {debug = _debug;lfd = _fd;}
+static void send_dreq_write(struct fuse_sock *next,char *buf);
+
+/* --------------------*/
+/**
+* @Brief record common error
+*
+* @Param fmt
+* @Param ...
+*/
+/* ---------------------*/
+void fuse_error(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+    char msg[MAXLINE];
+	va_list ap;
+	
+    memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+	va_end(ap);
+
+    if(debug)
+    {   
+    if(!fs)
+        fprintf(stderr,"ERROR(OUT): %s\n",buf);
+    else {
+        memset(msg,'\0',MAXLINE);
+        snprintf(msg,sizeof(msg),"ERROR: %s\n",buf);
+        send_dreq_write(fs,msg);
+        }
+    }
+}
+
+void fuse_syscall(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+    char msg[MAXLINE];
+	va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+	va_end(ap);
+    
+    if(debug)
+    {
+    if(!fs)         
+        fprintf(stderr,"ERROR SYSCALL(OUT): %s,%s\n",buf,strerror(errno));
+    else {
+        memset(msg,'\0',MAXLINE);
+        snprintf(msg,sizeof(msg),"ERROR SYSCALL: %s,%s\n",buf,strerror(errno));
+        send_dreq_write(fs,msg);
+    }
+    }
+}
+
+/* --------------------*/
+/**
+* @Brief print fatal error and exit
+*
+* @Param fmt
+* @Param ...
+*/
+/* ---------------------*/
+void fuse_fatal(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	char msg[MAXLINE];
+    va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+    fs = NULL;//just for test
+    /*  
+	fprintf(stderr,GREEN_RED);
+	fprintf(stderr,"%s:%s",buf,strerror(errno));
+	fprintf(stderr,RESET);
+	fprintf(stderr,"\n");
+	*/
+    if(debug)
+    {
+    if(!fs)
+	    fprintf(stderr,"FATAL(OUT): %s\n",buf);
+    else {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"FATAL: %s\n",buf);
+        send_dreq_write(fs,msg);
+    }
+    }
+
+	fuse_exit();
+}
+
+void fuse_state(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	char msg[MAXLINE];
+    va_list ap;
+	
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+    
+    fs = NULL;//just for test
+    if(debug)
+    {
+    if(!fs)
+        fprintf(stderr,"STATE(OUT): %s\n",buf);
+    else {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"STATE: %s\n",buf);
+        send_dreq_write(fs,msg);
+        }
+    }
+}
+
+void fuse_debug(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	char msg[MAXLINE];
+    va_list ap;
+
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);	
+	vsnprintf(buf,ERRORLINE,fmt,ap);
+	va_end(ap);
+    
+     fs = NULL;
+//    if(!fs || debug)
+    if(debug)
+    {
+     if(!fs)
+        fprintf(stderr,"DEBUG(OUT): %s\n",buf);
+    else {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,MAXLINE,"DEBUG: %s\n",buf);
+        send_dreq_write(fs,msg);
+    }
+    }
+}
+
+void fuse_warn(struct fuse_sock *fs,const char *fmt,...)
+{
+	char buf[ERRORLINE];
+	char msg[MAXLINE];
+    va_list ap;
+    
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+	va_end(ap);
+    
+    //fs = NULL;//just for test
+    //fprintf(stdout,"debug:%d\n",debug);
+    if(debug)
+    {
+    if(!fs)
+      fprintf(stdout,"WARNING(OUT): %s\n",buf);
+    else 
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"WARNING: %s\n",buf);
+        send_dreq_write(fs,msg);
+    }
+    }
+}
+
+void fuse_syscall_exit(struct fuse_sock *fs,const char *fmt,...)
+{
+
+	char buf[ERRORLINE];
+	char msg[MAXLINE];
+    va_list ap;
+   
+	memset(buf,0,ERRORLINE);
+	va_start(ap,fmt);
+	vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+    
+    if(debug)
+    {
+    if(!fs)
+        fprintf(stderr,"FATAL SYSCALL(OUT): %s,%s\n",buf,strerror(errno));
+    else
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"FATAL SYSCALL: %s,%s\n",buf,strerror(errno));
+        send_dreq_write(fs,msg);
+    }
+    }
+    fuse_exit();
+}
+
+void fuse_error1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {    
+   if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"ERROR: %s\n",buf);
+    again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+    }
+   else {
+        fprintf(stderr,"ERROR: %s\n",buf);
+   }
+   }
+}
+
+void fuse_syscall1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+     if(debug)
+     {        
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"ERROR SYSCALL: %s,%s\n",buf,strerror(errno));
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+    }
+     else
+        fprintf(stderr,"ERROR SYSCALL: %s,%s\n",buf,strerror(errno));
+    }
+}
+
+void fuse_fatal1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"FATAL: %s\n",buf);
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+     }
+    else
+       fprintf(stderr,"FATAL: %s\n",buf);
+    }
+
+    fuse_exit();
+}
+
+void fuse_state1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {
+    /*   
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"STATE: %s\n",buf);
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+     }
+    else 
+    */
+      fprintf(stderr,"STATE: %s\n",buf);
+    }
+}
+
+void fuse_debug1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {
+/*          
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"DEBUG: %s\n",buf);
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+    }
+    else
+*/
+        fprintf(stderr,"DEBUG: %s\n",buf);
+    }
+}
+
+void fuse_warn1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"WARNING: %s\n",buf);
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+     }
+    else
+        fprintf(stderr,"WARNING: %s\n",buf);
+    }
+}
+
+void fuse_syscall_exit1(const char *fmt,...)
+{
+    char buf[ERRORLINE];
+    char msg[MAXLINE];
+    va_list ap;
+    int ret;
+
+    memset(buf,0,ERRORLINE);
+    va_start(ap,fmt);
+    vsnprintf(buf,sizeof(buf),fmt,ap);
+    va_end(ap);
+
+    if(debug)
+    {
+    if(lfd)
+    {
+        memset(msg,0,MAXLINE);
+        snprintf(msg,sizeof(msg),"FATAL SYSCALL: %s,%s\n",buf,strerror(errno));
+        again:   
+        ret = write(lfd,msg,strlen(msg));
+        if(ret<0 && errno == -1) goto again;
+     }
+    else
+        fprintf(stderr,"FATAL SYSCALL: %s,%s\n",buf,strerror(errno));
+    }
+    fuse_exit();
+}
+
+static void send_dreq_write(struct fuse_sock *next,char *buf)
+{
+    int len;
+    char *p;
+    struct disk_req *dreq;
+    struct read_arg *oarg;
+   
+    if(!buf) return;
+    if(!next)
+    {
+        fuse_warn1("next is null in log write allocate");
+        return;
+    }
+
+    len = strlen(buf);
+    p = calloc(len+1,sizeof(char));
+    if(!p) {
+        fuse_syscall(NULL,"cann't allocate enough memory for buffer in log");
+        return;
+    }
+    memcpy(p,buf,len);
+    if(disk_allocate_req(next,LOG_WRITE,next->data,&dreq)<0)
+    {    
+        fuse_error(NULL,"cann't allocate enough memory for disk req");
+        free(p);
+        return;
+    }
+
+    oarg = calloc(1,sizeof(struct read_arg));
+    if(!oarg) {
+        fuse_syscall(NULL,"cann't allocate enough memory for struct read_arg in log");
+        disk_free_req(dreq);
+        free(p);
+    }
+
+    oarg->buf = p;
+    oarg->offset = 0;
+    oarg->size = len;
+    oarg->path = NULL;
+    dreq->in = oarg;
+    disk_send(dreq->next,dreq);
+}

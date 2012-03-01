@@ -1,0 +1,76 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  fuse_ms.h
+ *
+ *    Description:  req definition between meta and socket
+ *
+ *        Version:  1.0
+ *        Created:  08/29/2011 03:39:04 PM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  wyt (none), duanhancong@uestc.edu.cn
+ *        Company:  ndsl
+ *
+ * =====================================================================================
+ */
+
+#ifndef __FUSE_META_SOCK_H_
+#define __FUSE_META_SOCK_H_
+
+#include "list.h"
+#include "fuse_rs.h"
+//all socket request type
+/*  
+enum meta_req_type {
+	
+	LOOKUP_FILE = 0,
+	LOOKUP_DIR,
+	MK_DIR,
+	MK_FILE,
+	MOVE_DIR,
+	DELETE_FILE,
+	DELETE_DIR,
+	READ_FILE,
+	WRITE_FILE	
+};
+*/
+/*  
+struct meta_in {
+	
+	void *data;
+	uint32_t size;
+};
+
+struct meta_out {
+	
+	void *data;
+	uint32_t size;
+};
+
+struct meta_arg {
+
+	struct meta_in in;
+	struct meta_out out;
+};
+*/
+
+struct fuse_sock;
+//typedef struct request_req _meta_req;
+//#define _meta_req struct meta_req;
+/*  
+struct meta_req {
+
+	uint64_t unique;//request id
+	enum meta_req_type type;
+	struct fuse_meta *fm;
+	int32_t ctr;//reference count
+	struct list req_list;//all related fuse req		
+	struct meta_arg arg;//all request argument
+	struct fuse_sock *next;//which module do you want to send next
+	struct list list;//link to all meta_req
+	struct meta_lowlevel_op *op;//update its cache
+};
+*/
+#endif

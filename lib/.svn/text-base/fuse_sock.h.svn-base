@@ -1,0 +1,82 @@
+#ifndef _FUSE_SOCK_H_
+#define _FUSE_SOCK_H_
+
+#include "list.h"
+#include <stdint.h>
+
+/*
+ *1 means that it's positive
+ *2 means that is's negative
+ * */
+enum sock_type
+{
+  FUSE_REQ = 0,
+  META_REQ_1,
+  META_REQ_2,
+  REQ_SOCK_1,
+  REQ_SOCK_2,
+  DISK_REQ_1,
+  DISK_REQ_2,
+  META_SOCK_1,//SOCK_META:unix domain sockfd between sock and meta
+  META_SOCK_2,
+  META_DISK_1,
+  META_DISK_2,
+  DISK_SOCK_1,
+  DISK_SOCK_2,
+  NET_SOCK//net lib communication with net module by pipe,so it's the end of read
+};
+
+struct fuse_sock;
+
+struct sock_ops 
+{
+  int (*read)(struct fuse_sock*);
+  int (*write)(struct fuse_sock*);
+  int (*destroy)(struct fuse_sock*);
+
+};
+
+struct fuse_sock
+{
+  int fd;
+  enum sock_type type;//which type sock blongs to?
+  struct list pending;
+  struct list io;//request has sent to various module
+  struct list interrupt;//request hash interrupted?
+  struct list ready;//ready for sending to client
+  struct list fm;//fuse module link to 
+  struct sock_ops *op;
+  void *data;//the sock which fuse module blongs to?  	
+  struct epoll *owner;//the fuse_sock blongs to which owner?
+//  int rref,wref;//read reference count,write reference count
+  uint32_t events;//epoll event
+};
+
+struct fuse_sock_op;
+/*fuse_sock_op interface for fuse meta**/
+int fuse_sock_new(struct fuse_sock **,int,struct fuse_sock_op *op,void *fm);
+void fuse_sock_free(struct list *list);
+struct fuse_sock_op
+{
+		int (*new_op)(struct fuse_sock*);
+		const char *name;
+		enum sock_type type;
+};
+
+//read and write from /dev/fuse
+//int fuse_sock_op_fuse(struct fuse_sock*);
+/* associate with operation between fuse request and metadata*/
+//int fuse_sock_op_mr1(struct fuse_sock*);//corresponding sock type
+//int fuse_sock_op_mr2(struct fuse_sock*);
+/* associate with operation between fuse request and socket(network)*/
+//int fuse_sock_op_rs1(struct fuse_sock*);
+//int fuse_sock_op_rs2(struct fuse_sock*);
+//associate with operation between fuse request and disk(log)
+//int fuse_sock_op_dr1(struct fuse_sock*);
+//int fuse_sock_op_dr2(struct fuse_sock*);
+//int fuse_sock_op_ms1(struct fuse_sock*);
+//int fuse_sock_op_ms2(struct fuse_sock*);
+//int fuse_sock_op_md1(struct fuse_sock*);
+//int fuse_sock_op_md2(struct fuse_sock*);
+
+#endif

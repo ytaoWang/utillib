@@ -1,0 +1,306 @@
+#include "fuse_epoll.h"
+#include "fuse_sock.h"
+#include "fuse_error.h"
+
+#include <stdio.h>
+#include <sys/epoll.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <assert.h>
+
+
+static int epoll_add(struct epoll *ep,struct fuse_sock* fs)
+{
+	int fd;
+	struct epoll_event ev;
+	
+	memset(&ev,0,sizeof(ev));
+	assert(fs!=NULL);
+	fd = ep->efd;
+	ev.events = EPOLLIN|EPOLLOUT;
+	ev.data.ptr = fs;
+	fs->events = ev.events;
+	fs->owner = ep;
+
+	if(epoll_ctl(fd,EPOLL_CTL_ADD,fs->fd,&ev) <0)
+	{
+	  fuse_syscall(NULL,"add socket fd into epoll(%d) fail.",fd);
+	  return -1;
+	}
+	fuse_close_write(fs);
+    fuse_open_read(fs);
+	return 0;
+}
+
+static int epoll_delete(struct epoll*ep,struct fuse_sock *fs)
+{
+	int fd = ep->efd;
+	if(epoll_ctl(fd,EPOLL_CTL_DEL,fs->fd,NULL) <0)
+	{
+	//	fprintf(stderr,"delete socket fd from epoll fd:%d\n",fd);
+	    fuse_syscall(NULL,"delete socket fd from epoll fd:%d",fd);
+        return -1;
+	}
+	fs->op->destroy(fs);
+	return 0;
+}
+
+static int epoll_Wait(struct epoll *ep,int timeout)
+{
+	struct fuse_sock *fs;
+	int fd ,nfds;
+	fd = ep->efd;
+	while(1)
+	{
+//	  fuse_debug("before epoll_wait:%d",fs->events & EPOLLOUT);
+	  nfds = epoll_wait(fd,ep->ev,ep->size,timeout);
+	  //fuse_state(NULL,"after epoll_wait:%d",nfds);	 
+	  if( -1==nfds && errno == EINTR) continue;
+	  else if(-1==nfds)
+	  {
+	    fuse_syscall(NULL,"listen epoll(%d,tid:%lu) fail",fd,pthread_self());
+	    return -1;
+	  } 
+	  else
+	  {
+	    int i;
+	    for(i=0;i<nfds;i++)
+	    {
+		fs = ep->ev[i].data.ptr;
+		if(ep->ev[i].events & EPOLLIN)
+		{
+//		  fuse_debug("fuse read event readable.");
+		  if(-1 == fs->op->read(fs))
+			ep->op->del(ep,fs);
+//		  else fuse_debug("fuse read ok,%d",ep->ev[i].events&EPOLLOUT);
+//			fuse_debug("fuse event write:%d",fs->events & EPOLLOUT);
+		}  
+		if(ep->ev[i].events & EPOLLOUT)
+		{
+//		   fuse_debug("fuse write event readable.");
+		   if(-1==fs->op->write(fs)) ep->op->del(ep,fs);
+//		   else fuse_debug("fuse write ok.");
+		} 
+		if(ep->ev[i].events &(EPOLLERR|EPOLLHUP))
+		{
+		   fuse_debug(NULL,"fuse hup or error event del fd:%d",fs->fd);
+           //fprintf(stderr,"del fd:%d\n",fs->fd);
+		   ep->op->del(ep,fs);
+		}
+	    }
+	  }		
+	}
+	
+	return 0;
+	
+}
+
+static int epoll_destroy(struct epoll *ep)
+{
+/*
+	int i;
+	struct fuse_sock *fs;
+	
+	for(i=0;i<ep->size;++i)
+	{
+		fs = ep->ev[i].data.ptr;
+		close(fs->fd);
+	}
+*/
+	close(ep->efd);
+	
+	if(ep->ev)
+	{
+	   free(ep->ev);
+	   ep->ev = NULL;
+	}
+	return 0;
+}
+
+/* --------------------*/
+/**
+* @Brief open fuse_sock write event
+*
+* @Param ep
+* @Param fs
+*
+* @Returns succ(0) or fail(-1)
+*/
+/* ---------------------*/
+static int epoll_open_write(struct epoll *ep,struct fuse_sock *fs)
+{
+	
+	if(fs->events & EPOLLOUT) return 0;
+	
+	struct epoll_event ev;
+	memset(&ev,0,sizeof(ev));
+	ev.events = fs->events | EPOLLOUT;	
+	ev.data.ptr = fs;
+	fs->events |= EPOLLOUT;
+		
+	if(epoll_ctl(ep->efd,EPOLL_CTL_MOD,fs->fd,&ev)<0)
+	{
+			fuse_syscall(NULL,"open write error");
+			return -1;
+	}
+	return 0;
+	
+}
+
+/* --------------------*/
+/**
+* @Brief close epoll event
+*
+* @Param ep
+* @Param fs
+*
+* @Returns 
+*/
+/* ---------------------*/
+static int epoll_close_write(struct epoll *ep,struct fuse_sock *fs)
+{
+	
+	if( fs->events & EPOLLOUT)
+	{
+		struct epoll_event ev;
+		
+		memset(&ev,0,sizeof(ev));
+		ev.data.ptr = fs;
+		ev.events = fs->events & (~EPOLLOUT);
+		fs->events &= (~EPOLLOUT);
+
+		if(epoll_ctl(ep->efd,EPOLL_CTL_MOD,fs->fd,&ev)<0)
+		{
+			fuse_syscall(NULL,"open write error");
+			return -1;
+		}
+		return 0;
+	}
+		return 0;
+}
+
+static int epoll_open_read(struct epoll *ep,struct fuse_sock *fs)
+{
+	if(fs->events & EPOLLIN) return 0;
+	
+	struct epoll_event ev;
+	
+	memset(&ev,0,sizeof(ev));
+	ev.events = fs->events | EPOLLIN;	
+	ev.data.ptr = fs;
+	
+	fs->events |= EPOLLIN;
+
+	if(epoll_ctl(ep->efd,EPOLL_CTL_MOD,fs->fd,&ev)<0)
+	{
+			fuse_syscall(NULL,"open write error");
+			return -1;
+	}
+	return 0;
+}
+
+static int epoll_close_read(struct epoll *ep,struct fuse_sock *fs)
+{
+
+	if( fs->events & EPOLLIN)
+	{
+		struct epoll_event ev;
+		
+		memset(&ev,0,sizeof(ev));
+		ev.data.ptr = fs;
+		ev.events = fs->events & (~EPOLLIN);
+		
+		fs->events &= (~EPOLLIN);
+
+		if(epoll_ctl(ep->efd,EPOLL_CTL_MOD,fs->fd,&ev)<0)
+		{
+			fuse_syscall(NULL,"open write error");
+			return -1;
+		}
+		return 0;
+	}
+		return 0;
+}
+
+static struct epoll_op ll_op = {
+	.add = epoll_add,
+	.del = epoll_delete,
+	.wait = epoll_Wait,
+	.destroy = epoll_destroy,
+	.open_write = epoll_open_write,
+	.close_write = epoll_close_write,
+	.open_read = epoll_open_read,
+	.close_read = epoll_close_read,
+};
+
+int epoll_new(int num,struct epoll **_ep)
+{
+    struct epoll *ep;
+	
+    ep = calloc(1,sizeof(struct epoll));
+    if(!ep) 
+    {
+	//fprintf(stderr,"can't allocate enough memory for epoll.\n");
+	fuse_syscall(NULL,"can't allocate enough memory for epoll");
+    return -1;
+    }
+	
+    ep->op = &ll_op;
+    num = num<EPOLLSIZE?EPOLLSIZE:num;
+   ep->size = num;
+   ep->ev = calloc(num,sizeof(struct epoll_event)); 
+   ep->efd = epoll_create(1);
+   if(!ep->ev)
+    {
+	//fprintf(stderr,"cann't allocate enough memory for epoll_event.\n");
+    fuse_syscall(NULL,"cann't allocate enough memory for epoll_event");
+        goto ep_err;
+    }
+
+	*_ep = ep;
+	return 0;
+ep_err:{
+	free(ep);
+	return -1;
+       }
+}
+
+void fuse_open_write(struct fuse_sock *fs)
+{
+	struct epoll *ep = fs->owner;
+	
+	if(ep->op->open_write(ep,fs) < 0) {
+		fuse_error(NULL,"open write error.");
+	}
+}
+
+void fuse_close_write(struct fuse_sock *fs) 
+{
+	struct epoll *ep = fs->owner;
+
+	if(ep->op->close_write(ep,fs) < 0) 
+	{
+		fuse_error(NULL,"close write error.");
+	}
+}
+
+void fuse_open_read(struct fuse_sock *fs)
+{
+
+	struct epoll *ep = fs->owner;
+	
+	if(ep->op->open_read(ep,fs) < 0)
+	{
+		fuse_error(NULL,"open read error.");
+	}
+}
+
+void fuse_close_read(struct fuse_sock *fs)
+{
+	struct epoll *ep = fs->owner;
+
+	if(ep->op->close_read(ep,fs) < 0)
+	{
+		fuse_error(NULL,"close read error.");
+	}
+}
