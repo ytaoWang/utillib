@@ -169,7 +169,7 @@ static int fh_decrease_key(struct fh_root *root,struct fh_node *node,unsigned lo
   return 0;
 }
 
-int fh_earse(struct fh_root *root,struct fh_node *node) {
+int fh_erase(struct fh_root *root,struct fh_node *node) {
   
   int flag;
   
