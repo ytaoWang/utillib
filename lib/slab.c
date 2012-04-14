@@ -17,11 +17,6 @@
 #define PAGE_THRESHOLD 10
 #define PAGE_FREE  4
 
-#ifndef DEBUG
-#define DEBUG
-
-#endif
-
 static struct hlist_head cache_chain[N];//link all slab together
 
 #define __lock_wait(cachep) ({                  \
@@ -101,7 +96,7 @@ static int ucache_exist(const char *name)
 static int release_one_page(umem_cache_t *cachep,struct slab *slab) 
 {
   void *mem;
-  
+  int flags;
   
   #ifdef DEBUG
   
@@ -115,7 +110,9 @@ static int release_one_page(umem_cache_t *cachep,struct slab *slab)
   list_del_element(&slab->list);
   cachep->nrfree -= cachep->nrsize;
 
-  mem = (void *)slab + sizeof(struct slab) - cachep->pagesize;
+  //mem = (void *)slab + sizeof(struct slab) - cachep->pagesize;
+  mem = (void *)((ptr_t)slab & cachep->pagesize);
+  //  printf("%s,mem:%x\n",__FUNCTION__,mem);
   
   #ifdef DEBUG
 
@@ -124,7 +121,11 @@ static int release_one_page(umem_cache_t *cachep,struct slab *slab)
   // getchar();
   #endif
 
-  return munmap(mem,cachep->pagesize);
+  if((flags = munmap(mem,cachep->pagesize)) < 0) {
+    fprintf(stderr,"%s:munmap error:%s\n",__FUNCTION__,strerror(errno));
+  }
+
+  return flags;
 }
 
 static struct slab * get_slab(void *mem,unsigned int);
@@ -149,6 +150,7 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
     fprintf(stderr,"FAIL TO GET ONE PAGE:%s\n",strerror(errno));
     return -1;
   }
+  //  printf("%s,mem:%x\n",__FUNCTION__,mem);
   
   //carved up into servel piece
   nrsize = cachep->nrsize;
@@ -156,7 +158,7 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
   
   slab = (struct slab *)get_slab(mem,cachep->pagesize);
   
-  #ifndef DEBUG
+  #ifdef DEBUG
   
   fprintf(stderr,"slab mem:%p\n",slab);
   
@@ -202,7 +204,7 @@ umem_cache_t * umem_cache_create(const char *name,size_t size,unsigned int align
   
   if(!name || ucache_exist(name)) return NULL;
   
-  if(!(cachep = calloc(1,sizeof(umem_cache_t)))) return;
+  if(!(cachep = calloc(1,sizeof(umem_cache_t)))) return NULL;
   if(align <0 || ((align != ALIGN4) && (align != ALIGN8))) 
   { 
     free(cachep);
@@ -278,9 +280,9 @@ static void * __alloc_node(umem_cache_t *cachep,struct list *slabs_list) {
   
   n = slab->slab_list.next;
   
-  #ifndef DEBUG
+  #ifdef DEBUG
 
-  fprintf(stderr,"DEBUG:n:%p(__alloc_ndoe)\n",n);
+  fprintf(stderr,"DEBUG:n:%p(__alloc_node)\n",n);
   
   #endif
  
@@ -303,8 +305,12 @@ static void * __alloc_node(umem_cache_t *cachep,struct list *slabs_list) {
     #endif
   }
   
+  #ifdef DEBUG
+
   fprintf(stderr,"DEBUG:before alloc_node,mem:%p\n",n);
   
+  #endif
+
   return (void *)n;
   
 }
@@ -334,7 +340,11 @@ void *umem_cache_alloc(umem_cache_t *cachep) {
   if(!list_empty(&cachep->slabs_free)) {
     list_move(&cachep->slabs_partial,cachep->slabs_free.next);
     mem = __alloc_node(cachep,cachep->slabs_partial.next);
+    
+	#ifdef DEBUG
     fprintf(stderr,"DEBUG:mem:%p(umem_alloc) in slabs_free\n",mem);
+    #endif
+
   }
   
  _last:
