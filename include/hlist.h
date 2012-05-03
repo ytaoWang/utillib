@@ -1,8 +1,18 @@
 #ifndef _HLIST_H_
 #define _HLIST_H_
 
+#ifdef __cplusplus
+extern "C" 
+{
+#include <cstdlib>
+#include <cstdio>
+
+#else    
+
 #include <stdlib.h>
 #include <stdio.h>
+
+#endif
 
 #ifndef offsetof
 #define offsetof(TYPE,MEMBER) ((size_t) & ((TYPE*)0)->MEMBER)
@@ -140,4 +150,9 @@ static inline int hlist_empty(struct hlist_head *h)
 	for(pos = (head)->first,_pos = pos?pos->next:NULL;\
 	    pos &&  (tpos = hlist_entry(pos,typeof(*tpos),member));\
 	    pos=_pos,_pos =_pos? _pos->next:NULL)
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
