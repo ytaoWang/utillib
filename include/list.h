@@ -109,33 +109,21 @@ static inline void list_del(struct list *head,struct list *list)
 	_list_del(head,list);
 }
 
-//删除单个元素_list
 static inline void list_del_element(struct list* _list)
 {
-//	_list_del(_list->prev,_list);
-
 	struct list *p;
 	
 	p = _list->prev;
-	
-//    fprintf(stderr,"list_del_element prev:%p,list:%p\n",p,_list);
 
 	if(p && p != _list)
 		list_del(p,_list);
-//	else 	
-		list_init(_list);
-
+    list_init(_list);
 }
+
 static inline void list_move(struct list *dest,struct list *src)
 {
-//	printf("before list_move:%p,%d\n",dest,dest->next==dest);
-//	fflush(stdout);
 	list_del_element(src);
-//	printf("before list_add_tail:%p,%d\n",dest,dest->next == dest);
-	list_add_tail(dest,src);//has problem
-//	printf("after list:dest:%p,dest->next:%p,prev:%p,empty:%d in list.h\n",\
-			dest,dest->next,dest->prev,(dest->next == dest));
-//	fflush(stdout);
+	list_add_tail(dest,src);
 }
 
 static inline void list_move_head(struct list *dest,struct list *src)
@@ -146,9 +134,6 @@ static inline void list_move_head(struct list *dest,struct list *src)
 
 static inline int list_empty(struct list *head)
 {
-//	printf("empty in list.h:%d,head:%p,head->prev:%p,head->next:0x%p,\n",\
-			head->next == head,head,head->prev,head->next);
-//	fflush(stdout);
 	return head->next == head;	
 }
 
@@ -169,8 +154,8 @@ static inline int list_empty(struct list *head)
 	for(pos = list_entry((ptr)->next,type,member); \
 	    &pos->member != ptr; pos =list_entry(pos->member.next,type,member))
 /*
-*may be a little problem but nothing
-*/
+ * may be a little problem but nothing
+ */
 #define list_for_each_entry_del(pos,_pos,head,member)   \
 	for(pos = list_entry((head)->next,typeof(*_pos),member),\
 		 _pos = \
