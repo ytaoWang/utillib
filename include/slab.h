@@ -1,13 +1,22 @@
 #ifndef __SLAB_H__
 #define __SLAB_H__
 
-#include "stp_types.h"
+#ifdef __cplusplus
+
+extern "C" 
+{
+#endif
+
 #include "list.h"
 #include "hlist.h"
 
 
 #include <pthread.h>
 #include <semaphore.h>
+#include <stdint.h>
+
+typedef uint64_t u64;
+typedef unsigned long ptr_t;
 
 //unit of slab/page
 struct slab {
@@ -65,5 +74,9 @@ void *umem_cache_alloc(umem_cache_t *cp);
 void umem_cache_free(umem_cache_t *cp,void *buf);
 //All object must have been returned to the cache,when the cp is destroyed. 
 void umem_cache_destroy(umem_cache_t *cp);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

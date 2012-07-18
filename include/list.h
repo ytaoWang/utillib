@@ -80,27 +80,11 @@ static inline void list_add_tail(struct list *head,struct list *list)
 
 static inline void _list_del(struct list* head,struct list *_list)
 {
-//	printf("head->next:%p,%d in list_del\n",head->next,head->next==NULL);
 	if(head == _list ) return;
 	
 	struct list* next = _list->next;
-	
-//	printf("_list next:%p,%d in list_del\n",next,next->next == next);
 	next->prev = head;
-	head->next = next;
-	
-//	printf("list->next->prev:%p,%d in list_del\n",\
-			_list->next->prev,_list->next->prev==NULL);
-
-/*	head->next = _list->next;
-	if(_list->next)
-	{
-	printf("list->next->prev:%p,%d in list_del\n",\
-			_list->next->prev,_list->next->prev==NULL);
-	_list->next->prev = head;
-	}
-*/
-//	fflush(stdout);
+	head->next = next;	
 }
 
 //删除head后面元素list

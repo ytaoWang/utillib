@@ -150,7 +150,6 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
     fprintf(stderr,"FAIL TO GET ONE PAGE:%s\n",strerror(errno));
     return -1;
   }
-  //  printf("%s,mem:%x\n",__FUNCTION__,mem);
   
   //carved up into servel piece
   nrsize = cachep->nrsize;
@@ -174,6 +173,9 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
     n = (struct list *)(mem + i * cachep->size);
     
     list_init(n);
+    #ifdef DEBUG
+    printf("n:%p,slab_list:%p\n",n,&slab->slab_list);
+    #endif
     list_add_head(&slab->slab_list,n);
   }
   
@@ -184,7 +186,6 @@ static int get_one_page(umem_cache_t *cachep,struct list *freelist)
   #ifdef DEBUG
   fprintf(stderr,"DEBUG slab:%p,object size:%lu,nrsize:%u,mem:%p,new page,total:%lu\n",\
           slab,cachep->size,cachep->nrsize,mem,cachep->nrpage);
-  //getchar();
   #endif
 
   return 0;
@@ -212,6 +213,8 @@ umem_cache_t * umem_cache_create(const char *name,size_t size,unsigned int align
   }
   
   cachep->name = name;
+  if(size < sizeof(struct list))
+      size = sizeof(struct list);
   
   if(size & (align - 1)) {
     size += align-1;
@@ -235,6 +238,9 @@ umem_cache_t * umem_cache_create(const char *name,size_t size,unsigned int align
   
   hlist_init_node(&cachep->next);
   
+  #ifdef DEBUG
+  printf("partial:%p,full:%p,free:%p\n",&cachep->slabs_partial,&cachep->slabs_full,&cachep->slabs_free);
+  #endif
   if(flags & SLAB_NOSLEEP) 
     pthread_spin_init(&(cachep->lock.spinlock),PTHREAD_PROCESS_PRIVATE);
   else 
@@ -282,7 +288,7 @@ static void * __alloc_node(umem_cache_t *cachep,struct list *slabs_list) {
   
   #ifdef DEBUG
 
-  fprintf(stderr,"DEBUG:n:%p(__alloc_node)\n",n);
+  fprintf(stderr,"DEBUG:n:%p,next:%p,prev:%p(__alloc_node)\n",n,n->next,n->prev);
   
   #endif
  
@@ -338,27 +344,26 @@ void *umem_cache_alloc(umem_cache_t *cachep) {
   }
   
   if(!list_empty(&cachep->slabs_free)) {
-    list_move(&cachep->slabs_partial,cachep->slabs_free.next);
-    mem = __alloc_node(cachep,cachep->slabs_partial.next);
-    
-	#ifdef DEBUG
-    fprintf(stderr,"DEBUG:mem:%p(umem_alloc) in slabs_free\n",mem);
-    #endif
+      list_move(&cachep->slabs_partial,cachep->slabs_free.next);
+      mem = __alloc_node(cachep,cachep->slabs_partial.next);
+#ifdef DEBUG
+      fprintf(stderr,"DEBUG:mem:%p(umem_alloc) in slabs_free\n",mem);
+#endif
 
   }
   
  _last:
   {
-    __lock_post(cachep);
-    if(mem) 
-    {
-      memset(mem,0,cachep->size);
-      if( cachep->ctor) {
-      cachep->ctor(mem);
-    }
-    }
+      __lock_post(cachep);
+      if(mem) 
+      {
+          memset(mem,0,cachep->size);
+          if( cachep->ctor) {
+              cachep->ctor(mem);
+          }
+      }
     
-  	return mem;
+      return mem;
   }
 }
 
@@ -370,7 +375,7 @@ static void check_free(umem_cache_t *cachep) {
   
   if(cachep->nrpage < PAGE_THRESHOLD) return;
   
-  #ifndef DEBUG
+  #ifdef DEBUG
   
   fprintf(stderr,"check_free is here\n");
   
