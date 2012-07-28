@@ -14,6 +14,10 @@
 
 #include "skiplist.h"
 
+#define SKIPLIST_MAX_LEVEL 64
+#define SKIPLIST_MIN_LEVEL 32
+#define SKIPLIST_LEAST_LEVEL 1
+
 static inline void skip_item_init(struct skip_item *item)
 {
     item->next = item;
@@ -33,6 +37,12 @@ static inline void skip_item_insert(struct skip_item *head,struct skip_item *ite
     
     if(next)
         next->prev = item;
+}
+
+static skiplist_level_generate(skiplist_t ptr)
+{
+    
+    
 }
 
 
@@ -56,10 +66,6 @@ static inline void skip_item_destroy(struct skip_item *item)
     skip_item_del(item);
     free(item);
 }
-
-
-#define SKIPLIST_MAX_LEVEL 64
-#define SKIPLIST_MIN_LEVEL 32
 
 skiplist_t skiplist_init(unsigned long level,const skip_cmp *cmp)
 {
