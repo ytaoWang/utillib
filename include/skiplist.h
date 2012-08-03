@@ -13,14 +13,17 @@
 #ifndef __SKIPLIST_H_
 #define __SKIPLIST_H_
 
-typedef int (*skip_cmp)(const void *,const void *);
-    
+typedef int (*skip_cmp)(unsigned long,unsigned long);
+
+#define SKIPLIST_END (unsigned long)-1   
+
 struct skip_item;
 
 struct skiplist {
-    struct skip_item **root;
-    unsigned long level,cur;
-    const skip_cmp *cmp;
+    struct skip_item *root;
+    unsigned long level;
+    unsigned long cur;
+    skip_cmp cmp;
 };
 
 struct skip_item {
@@ -28,15 +31,16 @@ struct skip_item {
     struct skip_item *prev;
     struct skip_item *up;
     struct skip_item *down;
-    void *data;
+    unsigned long key;
+    unsigned long data;
 };
 
 typedef struct skiplist * skiplist_t;
 
-skiplist_t skiplist_init(unsigned long,const skip_cmp *);
-int skiplist_insert(skiplist_t,void *);
-void * skiplist_search(skiplist_t,const void *);
-int skiplist_erase(skiplist_t,const void *);
+skiplist_t skiplist_init(unsigned long,skip_cmp);
+int skiplist_insert(skiplist_t,unsigned long,unsigned long);
+unsigned long skiplist_search(skiplist_t,unsigned long);
+int skiplist_erase(skiplist_t,unsigned long);
 void skiplist_destroy(skiplist_t);
 
 #endif
