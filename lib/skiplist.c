@@ -140,14 +140,14 @@ static int __skiplist_search(skiplist_t ps,unsigned long key,struct skip_item **
         item = next;
 
 #ifdef SKIPLIST_DEBUG
-        fprintf(stderr,"search item data:%lu,key:%lu\n",item->data,item->key);
+        fprintf(stderr,"line:%u,search item data:%lu,key:%lu\n",__LINE__,item->data,item->key);
 #endif
 
         while((item != &ps->root[level]) && ps->cmp(key,item->key) > 0) {
             item = item->next;
 #ifdef SKIPLIST_DEBUG
-            fprintf(stderr,"l:%d,f:%s,lookup(%lu) item:%p, data:%lu,key:%lu\n", \
-                    __LINE__,__FUNCTION__,key,item,item->data,item->key);
+            fprintf(stderr,"l:%d,f:%s,lookup(%lu) item:%p, data:%lu,key:%lu,level:%d\n", \
+                    __LINE__,__FUNCTION__,key,item,item->data,item->key,level);
 #endif
         }
         
@@ -191,6 +191,9 @@ int skiplist_insert(skiplist_t ps,const unsigned long key,unsigned long data)
     
     //get random level
     level = skiplist_level_generate(ps);
+#ifdef SKIPLIST_DEBUG
+    fprintf(stderr,"line:%d,function:%s,key:%u,generate level:%d\n",__LINE__,__FUNCTION__,key,level);
+#endif
     struct skip_item *his[level];
     memset(his,0,sizeof(his));
 
@@ -218,43 +221,51 @@ int skiplist_insert(skiplist_t ps,const unsigned long key,unsigned long data)
         }
         
 #ifdef SKIPLIST_DEBUG
-        fprintf(stderr,"line:%d,function:%s,level:%d,prev:%p,it:%p,next:%p,level:%i\n\n",__LINE__,__FUNCTION__,i,it->prev,it,it->next,i);
+        fprintf(stderr,"line:%d,function:%s,level:%d,prev:%p,it:%p,next:%p,down:%p,up:%p,level:%i\n\n",\
+                __LINE__,__FUNCTION__,i,it->prev,it,it->next,it->down,i>0?his[i-1]->up:NULL,i);
 #endif    
     }
     
-    if(ps->cur < level)
+    if(ps->cur < level) {
+#ifdef SKIPLIST_DEBUG
+        fprintf(stderr,"line:%d,function:%s,current level:%d,level:%d\n",__LINE__,__FUNCTION__,ps->cur,level);
+#endif
         ps->cur = level;
+    }
     
     return 0;
 }
 
 int skiplist_erase(skiplist_t ps,unsigned long key)
 {
-    struct skip_item *item,*it;
+    struct skip_item *item,*it,*tmp;
     int level;
     
     if((__skiplist_search(ps,key,&item)) == ITEM_NOT_FOUND)
         return -ENOENT;
     
-    level = 0;
-    
-    #ifdef SKIPLIST_DEBUG
-    fprintf(stderr,"line:%d,function:%s,key:%lu\n",__LINE__,__FUNCTION__,key);
-    #endif
-    
-    while(item->up) {
-        item = item->up;
+    level = 1;
+    tmp = item;
+    while(tmp->down) {
+        tmp = tmp->down;
         level ++;
     }
     
+#ifdef SKIPLIST_DEBUG
+    fprintf(stderr,"line:%d,function:%s,key:%lu,level:%d,current level:%d\n",__LINE__,__FUNCTION__,key,level,ps->cur);
+#endif
+    
     if(level == ps->cur) {
         it = &ps->root[level];
+        #ifdef SKIPLIST_DEBUG
+        fprintf(stderr,"line:%d,function:%s,key:%lu,level:%d\n",\
+                __LINE__,__FUNCTION__,key,level);
+        #endif
         //item in the upper level
         if(it->next == item && item->next == it) {
             skip_item_init(ps->root + level);
             ps->level--;
         }
-        
     }
 
     while(item) {
@@ -275,18 +286,20 @@ void skiplist_destroy(skiplist_t ps)
     int i;
     
     for(i = 0; i < ps->cur;i++) {
-        #ifdef SKIPLIST_DEBUG
-        fprintf(stderr,"line:%d,function:%s,level:%d,p:%p\n",__LINE__,__FUNCTION__,i,ps->root+i);
-        #endif
         it = (ps->root + i)->next;
         next = it->next;
+#ifdef SKIPLIST_DEBUG
+        fprintf(stderr,"line:%d,function:%s,level:%d,root:%p,it:%p,next:%p\n",__LINE__,__FUNCTION__,i,ps->root+i,it,next);
+#endif
+
         while(next && next != it) {
             next = it->next;
-            #ifdef SKIPLIST_DEBUG
-            fprintf(stderr,"it:%p,up:%p,down:%p\n",it,it->up,it->down);
-            #endif
             __skip_item_destroy(it);
             it = next;
+#ifdef SKIPLIST_DEBUG
+            fprintf(stderr,"it:%p,key:%u,value:%u,up:%p,down:%p\n", \
+                    it,it->key,it->data,it->up,it->down);
+#endif
             next = next->next;
         }
     }
