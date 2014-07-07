@@ -23,6 +23,8 @@
 #include <assert.h>
 #include <ctype.h>
 
+#include "config.h"
+
 #define _CONFIG_BUFFER 1024
 #define _CONFIG_TOKEN 512
 
@@ -44,14 +46,6 @@
 
 // define state operation
 #define STATE_FUNCTION_NAME(name) (on##name)
-
-// define state error code
-#define E_CONF_NO_ERROR 0
-#define E_CONF_FILE_END 0
-#define E_CONF_INVALID_STATE   1
-#define E_CONF_ILLEGAL_CHAR 2 // illegal char
-#define E_CONF_FILE_NOT_EXIST 3 // file don't exist
-#define E_CONF_FILE_READ 4  // fail to read config file 
 
 #define E_CONF_MIN_ERRNO  0
 #define E_CONF_MAX_ERRNO 4
@@ -121,9 +115,10 @@ static int on_symbol_key(context_config_t *context);
 static int on_symbol_value(context_config_t *context);
 static int on_symbol_comment(context_config_t *context);
 
-static int __skip_buffer(const char *buffer,size_t *pos, unsigned int c);
-static void __skip_symbol(const char *buffer,size_t *pos);
+static int __skip_buffer(const char *buffer,size_t *pos,size_t *row,size_t *col ,unsigned int c);
+static void __skip_module_symbol(const char *buffer,size_t *pos,size_t *row,size_t *col);
 static int __get_next_symbol(const char *buffer);
+static void __save_context(const context_config_t *context);
 
 static context_state_operation state_func[] = {
 	{ STATE_START,NULL,"function:NULL"},
@@ -137,6 +132,7 @@ static context_state_operation state_func[] = {
 	{ STATE_END, NULL,"function:NULL" }
 };
 
+static size_t line,col;
 
 const char * conf_strerror(unsigned int error)
 {
@@ -189,6 +185,12 @@ static void inline __reset(char *token, int *symbol)
 {
 	memset(token,'\0',_CONFIG_TOKEN);
 	*symbol = 0;
+}
+
+static void inline __save_context(const context_config_t *context)
+{
+	 line = context->line;
+	 col = context->col;
 }
 
 static void set_context_state(context_config_t *context,enum STATE state) 
@@ -246,9 +248,11 @@ static int _read_config(const char *filename)
 	if(context.buffer[context.pos] == '\0')
 		goto _last;
 
-	__skip_symbol(context.buffer + context.pos,&context.pos);
+	__skip_module_symbol(context.buffer + context.pos,&context.pos,&context.line,&context.col);
 
 	if(! __iscomment(context.buffer[context.pos])) {
+		fdebug_error("invalid state line:%u,col:%u,buffer:%s\n",context.line,context.col,context.buffer+context.pos);
+		__save_context(&context);
 		ret = E_CONF_INVALID_STATE;
 		goto _last;
 	}
@@ -291,20 +295,26 @@ static int _parse_state(context_config_t *context)
 	switch(context->state) {
 	case STATE_START:
 	case MODULE_START: {  // state S
-		if(!token || ! __istoken(context->token))
+		if(!token || ! __istoken(context->token)) {
+			__save_context(context);
 			return E_CONF_ILLEGAL_CHAR;
-		
+		}
+
 		// it's import to differ which state route to MOUDLE_START or SYMBOL_KEY
 		// check code in here get next char to check next state and check by symbol
 		ret = __get_next_symbol(context->buffer + context->pos);
-		if(ret == '\0')
+		if(ret == '\0') {
+			__save_context(context);
 			return E_CONF_INVALID_STATE;
-		
+		}
+
 		if(__issplit(ret)) {
 			set_context_state(context,SYMBOL_KEY);// next state
 		}
-		if(*symbol == 0 || *symbol != _SYMBOL_LEFT_CHAR)
+		if(*symbol == 0 || *symbol != _SYMBOL_LEFT_CHAR) {
+			__save_context(context);
 			return E_CONF_ILLEGAL_CHAR;
+		}
   		on_module_start(context);
 		// before goto _module_end,get token first
 		ret = get_token(context);
@@ -316,8 +326,10 @@ static int _parse_state(context_config_t *context)
 	_module_end:
 	case MODULE_END:
 		fdebug_test("IN STATE MODULE_END,token:%s,symbol:%c,context->symbol:%c\n",token,*symbol,context->symbol);
-		if(*token || *symbol != _SYMBOL_RIGHT_CHAR)
+		if(*token || *symbol != _SYMBOL_RIGHT_CHAR) {
+			__save_context(context);
 			return E_CONF_ILLEGAL_CHAR;
+		}
 		on_module_end(context);
 		return E_CONF_NO_ERROR;
 		break;
@@ -337,7 +349,7 @@ static int _parse_state(context_config_t *context)
 	case STATE_END:
 		break;
 	}
-
+	__save_context(context);
 	return E_CONF_INVALID_STATE;
 
 }
@@ -375,10 +387,13 @@ static int get_token(context_config_t *context)
 		 */
 		if(__isnewline(*p))  {
 
-			if(state == SYMBOL_VALUE) 
+			if(state == SYMBOL_VALUE)  {
+				__save_context(context);
 				return E_CONF_ILLEGAL_CHAR;
+			}
 
 			context->line++;
+			context->col = 0;
 			(*pos)++;
 			fdebug_test("isnewline token:%s,pos:%u,char:%s\n",token,*pos,context->buffer + *pos);
 			return 0;
@@ -399,7 +414,7 @@ static int get_token(context_config_t *context)
 			(*pos)++;
 			fdebug_test("in symbol token:%s,pos:%u,char:%s\n",token,*pos,context->buffer+*pos);
 			// skip '\t\n' after { or }
-		    __skip_symbol(p+1,pos);
+		    __skip_module_symbol(p+1,pos,&context->line,&context->col);
 			return 0;
 		} else if(__isspace(*p)) {  // ignore space
 			p++;
@@ -419,6 +434,7 @@ static int get_token(context_config_t *context)
 		(*pos)++;
 	}
 
+	__save_context(context);
 	return E_CONF_INVALID_STATE;
 }
 
@@ -433,7 +449,6 @@ static int on_module_start(context_config_t *context)
 	
 	fdebug_test("on module start pos:%d,row:%d,col:%d.token:%s,current:%c.\n",*pos,context->line,context->col,context->token,*(context->buffer+*pos));
 	fdebug_test("on_module_start module name:%s,symbol:%c\n",context->token,*symbol);
-	getchar();
 
 	__reset(token,symbol);
 
@@ -452,16 +467,19 @@ static int on_module_end(context_config_t *context)
 
 	fdebug_test("on module end:%c,next symbol:%c,pos:%d,current char:%c\n",context->symbol,symbol,context->pos,context->buffer[context->pos]);
 	fdebug_test("current buffer:%s\n",context->buffer + context->pos);
-	getchar();
 	
 	__reset(context->token,&context->symbol);
 
-	if(symbol == '\0')
+	if(symbol == '\0') {
+		__save_context(context);
 		return E_CONF_INVALID_STATE;
+	}
 
 	context->depth--;
-	if(context->depth < 0 ) 
+	if(context->depth < 0 ) {
+		__save_context(context);
 		return E_CONF_INVALID_STATE;
+	}
 
 	if(__issplit(symbol)) {
 		set_context_state(context,SYMBOL_KEY);
@@ -490,7 +508,6 @@ static int on_symbol_key(context_config_t *context)
 
 	// get key for this module
 	fdebug_test("on_symbol_key:%s.\n",context->token);
-	getchar();
 	__reset(token,symbol);
 	
 	_parse_state(context);
@@ -506,14 +523,16 @@ static int on_symbol_value(context_config_t *context)
 	// check previous state
 	// get value for last key
 	fdebug_test("on_symbol_value:%s.\n",context->token);
-	getchar();
 	__reset(token,symbol);
 
 	//* state router has to give parse_state
 	*symbol = __get_next_symbol(context->buffer + context->pos);
 
-	if(*symbol == '\0')
+	if(*symbol == '\0') {
+		__save_context(context);
 		return E_CONF_INVALID_STATE;
+	}
+
 	if(__issplit(*symbol)) {
 		set_context_state(context,SYMBOL_KEY);
 		_parse_state(context);
@@ -529,31 +548,36 @@ static int on_symbol_comment(context_config_t *context)
 {
 	size_t *pos = &context->pos;
 
-	fdebug_test("on_symbol_comment,line:%d,col:%d\n",context->line,context->col);
+	fdebug_test("on_symbol_comment,line:%u,col:%u,buffer:%s\n",context->line,context->col,context->buffer + context->pos);
 	// skip this line until a newline
-	if(__skip_buffer(context->buffer,pos,_NEWLINE_CHAR) < 0) {
+	if(__skip_buffer(context->buffer,pos,&context->line,&context->col, _NEWLINE_CHAR) < 0) {
 		fdebug_test("fail to skip buffer:%s.\n",context->msg);
 		return -1;
 	}
 
-	context->line++;
-	context->col = 0;
-
-	fdebug_test("skip buffer:%d,buffer:%s.\n",*pos,context->buffer+*pos);
+	fdebug_test("skip buffer:%d,line:%u,col:%u,buffer:%s\n",*pos,context->line,context->line,context->buffer+*pos);
 	return 0;
 }
 
-static int __skip_buffer(const char *buffer,size_t *pos, unsigned int c)
+static int __skip_buffer(const char *buffer,size_t *pos, size_t *line,size_t *col,unsigned int c)
 {
 	size_t s = *pos;
 	const char *p = buffer + s;
-	//printf("now pos:%d,p:%s\n",*pos,p);
 	while(*p != '\0' && *p++ != c) {
-		//putchar(*p);
+
+		if(__isnewline(*p)) {
+			(*line)++;
+			*col = 0;
+		}
+
 		s++;
+		(*col)++;
 	}
 
-	//printf("buffer:%s\n",p);
+	
+	if(__isnewline(*(p-1))) // skip this \n again
+		*col = 1;
+	
 	if(*(p-1) == c) {
 		*pos = s + 1; // skip this char c itself
 		return 0;
@@ -565,11 +589,14 @@ static int __skip_buffer(const char *buffer,size_t *pos, unsigned int c)
 static int __get_next_symbol(const char *buffer) 
 {
 	const char *p = buffer;
-	size_t pos = 0;
+	size_t line,col,pos = 0;
+	
+	line = 0;
+	col = 0;
 	while(p) {
 		if(__iscomment(*p)) {
 			pos = p - buffer;
-			if(__skip_buffer(buffer,&pos,_NEWLINE_CHAR) < 0) // can't find the _NEWLINE_CHAR
+			if(__skip_buffer(buffer,&pos,&line,&col,_NEWLINE_CHAR) < 0) // can't find the _NEWLINE_CHAR
 				return '\0';
 			p = buffer + pos;
 		}
@@ -583,10 +610,20 @@ static int __get_next_symbol(const char *buffer)
 }
 
 // skip newline or space after module symbol
-static void __skip_symbol(const char *p,size_t *pos)
+static void __skip_module_symbol(const char *p,size_t *pos,size_t *line,size_t *col)
 {
+	fdebug_test("line:%u,col:%u,buf:%s\n",*line,*col,p);
 	while(__isnewline(*p) || __isspace(*p)) {
+
+		if(__isnewline(*p)) {
+			(*line)++;
+			(*col) = 0;
+		}
+
 		p++;
 		(*pos)++;
+		(*col)++;
 	}
+	fdebug_test("line:%u,col:%u,buf:%s\n",*line,*col,p);
 }
+
