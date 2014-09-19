@@ -48,7 +48,7 @@
 #define STATE_FUNCTION_NAME(name) (on##name)
 
 #define E_CONF_MIN_ERRNO  0
-#define E_CONF_MAX_ERRNO 4
+#define E_CONF_MAX_ERRNO 6
 
 #define N_(s) (s)
 #define _(s)  ((const char *)s)
@@ -59,6 +59,8 @@ const char * const conf_errlist[E_CONF_MAX_ERRNO + 1] = {
 	N_("Illegal character"), /* E_CONF_ILLEGAL_CHAR */
 	N_("File don't exist"), /* E_CONF_FILE_NOT_EXIST */
 	N_("Fail to read config file"), /* E_CONF_FILE_READ */
+	N_("ILLEGAL token"), /* E_CONF_TOKEN_ILLEGAL */
+	N_("Unexpected end"), /* E_CONF_INVALID_END */
 };
 
 enum STATE {
@@ -105,7 +107,7 @@ static unsigned int errorno_config;
 static int _read_config(const char *filename);
 static int get_token(context_config_t *context);
 static int _parse_state(context_config_t *context);
-
+static int __check_state(const context_config_t *context);
 // state operation
 static int on_module_start(context_config_t *context);
 static int on_module_end(context_config_t *context);
@@ -119,6 +121,7 @@ static int __skip_buffer(const char *buffer,size_t *pos,size_t *row,size_t *col 
 static void __skip_module_symbol(const char *buffer,size_t *pos,size_t *row,size_t *col);
 static int __get_next_symbol(const char *buffer);
 static void __save_context(const context_config_t *context);
+static int __load_conf(context_config_t *context,unsigned int *has_read);
 
 static context_state_operation state_func[] = {
 	{ STATE_START,NULL,"function:NULL"},
@@ -169,6 +172,15 @@ static int inline __issymbol(int c)
 	return c == _SYMBOL_LEFT_CHAR || c == _SYMBOL_RIGHT_CHAR;
 }
 
+static int inline __isright(int c) 
+{
+	return c == _SYMBOL_RIGHT_CHAR;
+}
+
+static int inline __isleft(int c) 
+{
+	return c == _SYMBOL_LEFT_CHAR;
+}
 static int __istoken(const char *token)
 {
 	if(!(__isunderline(*token) || isalpha(*token)))
@@ -191,6 +203,11 @@ static void inline __save_context(const context_config_t *context)
 {
 	 line = context->line;
 	 col = context->col;
+}
+
+static int inline __need_load(const context_config_t *context)
+{
+	return context->pos >= context->len;
 }
 
 static void set_context_state(context_config_t *context,enum STATE state) 
@@ -238,16 +255,21 @@ static int _read_config(const char *filename)
 
 	context.len = len;
 	context.file = file;
-
+	//// parse MODULE_START state
 	ret = _parse_state(&context);
 
 	if(ret != E_CONF_NO_ERROR)
 		fdebug_error("fail to parse file:%s\n",conf_strerror(ret));
-
+	
+	//// parse MODULE_END state
  _invalid:
-	if(context.buffer[context.pos] == '\0')
+	if(!__isright(context.buffer[context.pos]))  {
+		ret = E_CONF_INVALID_STATE;
 		goto _last;
+	}
 
+	context.pos ++;
+	//on_module_end(context);
 	__skip_module_symbol(context.buffer + context.pos,&context.pos,&context.line,&context.col);
 
 	if(! __iscomment(context.buffer[context.pos])) {
@@ -258,8 +280,9 @@ static int _read_config(const char *filename)
 	}
 	
 	on_symbol_comment(&context);
-
-	goto _invalid;
+	
+	if(context.buffer[context.pos] != '\0')
+		ret = E_CONF_INVALID_END;
 
  _last:	
 
@@ -356,32 +379,44 @@ static int _parse_state(context_config_t *context)
 
 static int get_token(context_config_t *context)
 {
-	const char *buffer = context->buffer;
-	size_t *pos = &context->pos;
-	char *token = context->token;
-	enum STATE state = context->state;
+	const char *buffer;
+	size_t *pos;
+	char *token;
+	unsigned int has_read = 0;
+	enum STATE state;
 
-	const char *p = buffer + *pos;
+	const char *p;
 	
 	__reset(context->token,&context->symbol);
+
+	if(__need_load(context) && __load_conf(context,&has_read) < 0)
+		return E_CONF_FILE_READ;
+
+	pos = &context->pos;
+	token = context->token;
+	buffer = context->buffer;
+	state = context->state;
+	p = buffer + *pos;
+
+	// token's first char to check its illegal or not
+	/*
+	if(!isalpha(*p) && !__isunderline(*p))
+		return E_CONF_TOKEN_ILLEGAL;
+	*/
 	
-	if(*pos >= context->len) {
-			
-		if((context->len = fread(context->buffer,sizeof(char),_CONFIG_BUFFER,context->file)) < sizeof(char) && ferror(context->file))  {
-			return E_CONF_FILE_READ;
-		}
-
-		if(feof(context->file))
-			return E_CONF_FILE_END;
-
-		context->pos = 0;
-		p = buffer;
-	}
-
 	while(*p != '\0') {
 
 		fdebug_debug("current char(p):%c,pos:%u,size:%u,buffer:%c,token:%s\n",*p,*pos,(p - buffer),buffer[*pos],context->token);
 
+		// buffer is going to end?
+		if(__need_load(context)) {
+				if(__load_conf(context,&has_read) >= 0) {
+					if(!has_read) return __check_state(context);
+					pos = &context->pos;
+					p = buffer + *pos;
+					has_read = 0;
+				} else return E_CONF_FILE_READ;
+			}
 		/*
 		 * check state routing by special character
 		 */
@@ -432,6 +467,7 @@ static int get_token(context_config_t *context)
 		*token++ = *p++;
 		context->col++;
 		(*pos)++;
+		
 	}
 
 	__save_context(context);
@@ -461,11 +497,13 @@ static int on_module_start(context_config_t *context)
 static int on_module_end(context_config_t *context)
 {
 	int symbol;
-	
+	unsigned int has_read = 0;
+
 	//* state router has to give parse_state
 	symbol = __get_next_symbol(context->buffer + context->pos);
 
-	fdebug_test("on module end:%c,next symbol:%c,pos:%d,current char:%c\n",context->symbol,symbol,context->pos,context->buffer[context->pos]);
+	fdebug_test("on module end:%c,next symbol:%c,pos:%d,current char:%c,depth:%d\n",
+				context->symbol,symbol,context->pos,context->buffer[context->pos],context->depth);
 	fdebug_test("current buffer:%s\n",context->buffer + context->pos);
 	
 	__reset(context->token,&context->symbol);
@@ -486,6 +524,22 @@ static int on_module_end(context_config_t *context)
 		_parse_state(context);
 	}
 	
+	// module has finally finished to parse,so read next module state
+	if(context->depth == 0) {
+		
+		if(feof(context->file) && !__need_load(context))
+			return 	E_CONF_NO_ERROR;
+
+		// any more text
+		set_context_state(context, MODULE_START);
+	
+		if(__need_load(context) && __load_conf(context,&has_read) < 0)
+			return E_CONF_FILE_READ;
+
+		fdebug_test("[OMG] more module:%s\n",context->buffer);
+		_parse_state(context);
+	}
+
 	return E_CONF_NO_ERROR;
 }
 
@@ -546,14 +600,27 @@ static int on_symbol_value(context_config_t *context)
  */
 static int on_symbol_comment(context_config_t *context)
 {
-	size_t *pos = &context->pos;
+	size_t *pos;
+	unsigned int has_read = 0;
 
 	fdebug_test("on_symbol_comment,line:%u,col:%u,buffer:%s\n",context->line,context->col,context->buffer + context->pos);
-	// skip this line until a newline
-	if(__skip_buffer(context->buffer,pos,&context->line,&context->col, _NEWLINE_CHAR) < 0) {
-		fdebug_test("fail to skip buffer:%s.\n",context->msg);
-		return -1;
-	}
+	// skip this line until a newline or buffer is ending
+	do {
+		pos = &context->pos;
+		if(__skip_buffer(context->buffer,pos,&context->line,&context->col, _NEWLINE_CHAR) < 0) {
+
+			if(__need_load(context) && __load_conf(context,&has_read) >= 0 && !has_read) {
+				fdebug_test("config file is ending.\n");
+				return 0;
+			}
+
+			if(has_read) // buffer is empty,so again
+				continue;
+
+			fdebug_test("fail to skip buffer:%s.\n",context->msg);
+			return -1;
+		}
+	} while(__need_load(context));
 
 	fdebug_test("skip buffer:%d,line:%u,col:%u,buffer:%s\n",*pos,context->line,context->line,context->buffer+*pos);
 	return 0;
@@ -581,7 +648,7 @@ static int __skip_buffer(const char *buffer,size_t *pos, size_t *line,size_t *co
 	if(*(p-1) == c) {
 		*pos = s + 1; // skip this char c itself
 		return 0;
-	}
+	} else *pos = s; // buffer is ending also can't find the char c
 
 	return -1;
 }
@@ -627,3 +694,25 @@ static void __skip_module_symbol(const char *p,size_t *pos,size_t *line,size_t *
 	fdebug_test("line:%u,col:%u,buf:%s\n",*line,*col,p);
 }
 
+static int __load_conf(context_config_t *context,unsigned int *has_read)
+{
+	*has_read = 0;
+
+	if(context->pos >= context->len && !feof(context->file)) {
+		*has_read = 1;
+		if((context->len = fread(context->buffer,sizeof(char),
+								 _CONFIG_BUFFER,context->file)) < sizeof(char))
+	   
+			return ferror(context->file)?-1:0;
+		
+		context->pos = 0;
+		return context->len;
+	}
+
+	return 0;
+}
+
+static int __check_state(const context_config_t *context)
+{
+	return 0;
+}

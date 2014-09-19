@@ -11,5 +11,6 @@ const char * conf_strerror(unsigned int error);
 #define E_CONF_ILLEGAL_CHAR 2 // illegal char
 #define E_CONF_FILE_NOT_EXIST 3 // file don't exist
 #define E_CONF_FILE_READ 4  // fail to read config file 
-
+#define E_CONF_TOKEN_ILLEGAL  5 // illegal token
+#define E_CONF_INVALID_END 6 // invalid end
 #endif
