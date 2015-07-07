@@ -262,6 +262,7 @@ static int _read_config(const char *filename)
 		fdebug_error("fail to parse file:%s\n",conf_strerror(ret));
 	
 	//// parse MODULE_END state
+	/*
  _invalid:
 	if(!__isright(context.buffer[context.pos]))  {
 		ret = E_CONF_INVALID_STATE;
@@ -283,7 +284,7 @@ static int _read_config(const char *filename)
 	
 	if(context.buffer[context.pos] != '\0')
 		ret = E_CONF_INVALID_END;
-
+	*/
  _last:	
 
 	fclose(file);
@@ -315,6 +316,8 @@ static int _parse_state(context_config_t *context)
 	 */
 	fdebug_test("next is to context->state:%s\n",context->token);
 
+	ret = __get_next_symbol(context->buffer + context->pos);
+
 	switch(context->state) {
 	case STATE_START:
 	case MODULE_START: {  // state S
@@ -325,7 +328,6 @@ static int _parse_state(context_config_t *context)
 
 		// it's import to differ which state route to MOUDLE_START or SYMBOL_KEY
 		// check code in here get next char to check next state and check by symbol
-		ret = __get_next_symbol(context->buffer + context->pos);
 		if(ret == '\0') {
 			__save_context(context);
 			return E_CONF_INVALID_STATE;
@@ -353,20 +355,19 @@ static int _parse_state(context_config_t *context)
 			__save_context(context);
 			return E_CONF_ILLEGAL_CHAR;
 		}
-		on_module_end(context);
-		return E_CONF_NO_ERROR;
+		return on_module_end(context);
 		break;
 	case BLOCK_START:
 		break;
 	case BLOCK_END:
 		break;
 	case SYMBOL_KEY:
+		if(!__issplit(context->symbol))
+			return E_CONF_ILLEGAL_CHAR;
 		set_context_state(context,SYMBOL_VALUE);
-		on_symbol_key(context);
-		break;
+		return on_symbol_key(context);
 	case SYMBOL_VALUE:
-		on_symbol_value(context);
-		break;
+		return on_symbol_value(context);
     case SYMBOL_COMMENT:
 		break;
 	case STATE_END:
@@ -489,9 +490,7 @@ static int on_module_start(context_config_t *context)
 	__reset(token,symbol);
 
 	context->depth ++;
-	_parse_state(context);
-
-	return 0;
+	return _parse_state(context);
 }
 
 static int on_module_end(context_config_t *context)
@@ -508,10 +507,6 @@ static int on_module_end(context_config_t *context)
 	
 	__reset(context->token,&context->symbol);
 
-	if(symbol == '\0') {
-		__save_context(context);
-		return E_CONF_INVALID_STATE;
-	}
 
 	context->depth--;
 	if(context->depth < 0 ) {
@@ -519,17 +514,30 @@ static int on_module_end(context_config_t *context)
 		return E_CONF_INVALID_STATE;
 	}
 
-	if(__issplit(symbol)) {
+	switch(symbol) {
+
+	case '\0':
+		__save_context(context);
+		return E_CONF_INVALID_STATE;
+	case _SPLIT_CHAR:
 		set_context_state(context,SYMBOL_KEY);
-		_parse_state(context);
+		return _parse_state(context);
+	case _SYMBOL_LEFT_CHAR:
+		if(context->depth == 0)
+			goto _more;
+		set_context_state(context,MODULE_START);
+		return _parse_state(context);
+	case _SYMBOL_RIGHT_CHAR:
+		set_context_state(context,MODULE_END);
+		return _parse_state(context);
+	default:
+		assert(1);
+		break;
 	}
-	
+
+ _more:	
 	// module has finally finished to parse,so read next module state
 	if(context->depth == 0) {
-		
-		if(feof(context->file) && !__need_load(context))
-			return 	E_CONF_NO_ERROR;
-
 		// any more text
 		set_context_state(context, MODULE_START);
 	
@@ -537,7 +545,7 @@ static int on_module_end(context_config_t *context)
 			return E_CONF_FILE_READ;
 
 		fdebug_test("[OMG] more module:%s\n",context->buffer);
-		_parse_state(context);
+		return _parse_state(context);
 	}
 
 	return E_CONF_NO_ERROR;
@@ -564,9 +572,7 @@ static int on_symbol_key(context_config_t *context)
 	fdebug_test("on_symbol_key:%s.\n",context->token);
 	__reset(token,symbol);
 	
-	_parse_state(context);
-
-	return 0;
+	return _parse_state(context);
 }
 
 static int on_symbol_value(context_config_t *context)
@@ -589,7 +595,7 @@ static int on_symbol_value(context_config_t *context)
 
 	if(__issplit(*symbol)) {
 		set_context_state(context,SYMBOL_KEY);
-		_parse_state(context);
+		return _parse_state(context);
 	}
 
 	return -1;
