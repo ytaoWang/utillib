@@ -274,6 +274,50 @@ namespace libutil {
 			hash_ = h;
 		}
 
+		HashTable(const HashTable &ht) {
+			occupancy_ = ht.occupancy_;
+			loadFactor_ = ht.loadFactor_;
+			count_  = ht.count_;
+			hash_ = ht.hash_;
+			bucketsize_  = ht.bucketsize_;
+			loadsize_  = ht.loadsize_;
+			buckets_ = new bucket_t[bucketsize_];
+			
+			for(size_t i = 0;i < bucketsize_; ++i) {
+				bucket_t *oldb = ht.buckets_ + i;
+				buckets_[i].key = oldb->key;
+				buckets_[i].value = oldb->value;
+				buckets_[i].coll = oldb->coll;
+				buckets_[i].used = oldb->used;
+			}
+		}
+
+		HashTable& operator=(const HashTable& ht) {
+
+			if(this != &ht) {
+				delete [] buckets_;
+
+				occupancy_ = ht.occupancy_;
+				loadFactor_ = ht.loadFactor_;
+				count_  = ht.count_;
+				hash_ = ht.hash_;
+				bucketsize_  = ht.bucketsize_;
+				loadsize_  = ht.loadsize_;
+
+				buckets_ = new bucket_t[bucketsize_];
+				
+				for(size_t i = 0;i < bucketsize_; ++i) {
+					bucket_t *oldb = ht.buckets_ + i;
+					buckets_[i].key = oldb->key;
+					buckets_[i].value = oldb->value;
+					buckets_[i].coll = oldb->coll;
+					buckets_[i].used = oldb->used;
+				}
+			}
+
+			return *this;
+		}
+		
 		HashTable():HashTable(0,1.0f){}
 		HashTable(int capacity, float loadFactor):count_(0),occupancy_(0) 
 		{

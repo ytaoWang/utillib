@@ -4,16 +4,17 @@
 #include <iterator>
 #include <cassert>
 #include <iostream>
+#include <queue>
 
 namespace tree {
 	
 	template<typename T>
 	class Tree;
 
-	template<typename T>
+	template<class T,class _Ref=T&,class _Ptr=T*>
 	class NodeIterator;
 
-	template<typename T>
+	template<class T,class Ref=T&,class Ptr=T*>
 	class ChildIterator;
 
 	template<typename T>
@@ -23,16 +24,21 @@ namespace tree {
 	class TreeNode {
 		friend class Tree<T>;
 		friend class NodeIterator<T>;
+		friend class NodeIterator<T,const T&,const T*>;
 		friend class ChildIterator<T>;
+		friend class ChildIterator<T,const T&,const T*>;
 		friend class SiblingIterator<T>;
 	public:
 		typedef TreeNode<T> value_type;
 		typedef TreeNode<T>* pointer;
 		typedef TreeNode<T>& reference;
 		typedef NodeIterator<T> node_iterator;
+		typedef NodeIterator<T,const T&,const T*> node_const_iterator;
 		typedef ChildIterator<T> child_iterator;
+		typedef ChildIterator<T,const T&,const T*> child_const_iterator;
 		typedef SiblingIterator<T> sibling_iterator;
 		typedef NodeIterator<T> iterator;
+		typedef node_const_iterator const_iterator;
 	private:
 		pointer parent;
 		pointer child_prev;
@@ -57,7 +63,25 @@ namespace tree {
 				node->next = this;
 			}				
 		}
-			
+		
+	private:
+		TreeNode(const TreeNode & node);
+		TreeNode& operator=(const TreeNode &node)
+		{
+			if(this != &node) {
+				pointer parent;
+				
+				parent = this->parent;
+				this->value_ = node.value_;
+				parent->removeChild(this);
+
+				for(pointer iter = this->child_next;iter != this;++iter)
+					this->removeChild(iter);
+				// no child,no parent
+				setParent(NULL);
+			}
+		}
+		
 	public:
 
 		TreeNode():parent(NULL),child_prev(this),child_next(this),sibling_prev(this),sibling_next(this),prev(this),next(this) {
@@ -68,12 +92,19 @@ namespace tree {
 		{
 				
 		}
-
+		
 		iterator node_begin() { return next; }
 		iterator node_end() { return this;}
 			
 		child_iterator child_begin() {return this->child_next;}
 		child_iterator child_end() { return this;}
+
+		const_iterator node_const_begin() { return next; }
+		const_iterator node_const_end() { return this;}
+			
+		child_const_iterator child_const_begin() {return this->child_next;}
+		child_const_iterator child_const_end() { return this;}
+
 
 		sibling_iterator sibling_begin()   { 			
 			if(parent)
@@ -244,7 +275,7 @@ namespace tree {
 		{
 			pointer iter = this;
 			do {
-				if(iter != sentiel && iter->value_ == t) {
+				if((iter != sentiel || !sentiel) && iter->value_ == t) {
 					node = iter;
 					return true;
 				}
@@ -259,10 +290,10 @@ namespace tree {
 	};
 	
 	//////////////////// iterator //////////////////////////////////////////////
-	template<typename T>
+	template<class T, class _Ref,class _Ptr>
 	class NodeIterator : public std::iterator<std::forward_iterator_tag,T> {
 	private:
-		typedef NodeIterator<T> self;
+		typedef NodeIterator<T,_Ref,_Ptr> self;
 		TreeNode<T> *node_;
 		void incr_self() {
 			node_ = node_->next;
@@ -277,8 +308,8 @@ namespace tree {
 		NodeIterator(TreeNode<T> *x):node_(x) { }
 		~NodeIterator() {}
 
-		T& operator*() const {return node_->value_;}
-		T* operator->() const {return &(operator*());}
+		_Ref operator*() const {return node_->value_;}
+		_Ptr operator->() const {return &(operator*());}
 			
 		bool operator==(const self& x) const {
 			return *node_ == *(x.node_);
@@ -295,11 +326,11 @@ namespace tree {
 		self& operator--(int) {self __tmp = *this;decr_self();return __tmp;}
 	};
 
-	template<typename T>
+	template<class T,class _Ref,class _Ptr>
 	class ChildIterator: public std::iterator<std::forward_iterator_tag,T> 
 	{
 	private:
-		typedef ChildIterator<T> self;
+		typedef ChildIterator<T,_Ref,_Ptr> self;
 		TreeNode<T> *node_;
 		void incr_self() {
 			node_ = node_->sibling_next;
@@ -314,8 +345,8 @@ namespace tree {
 		ChildIterator(TreeNode<T> *x):node_(x) {}
 		~ChildIterator() {}
 
-		T& operator*() const {return node_->value_;}
-		T* operator->() const {return &(operator*());}
+		_Ref operator*() const {return node_->value_;}
+		_Ptr operator->() const {return &(operator*());}
 			
 		bool operator==(const self& x) const {
 			return node_ == x.node_;
@@ -388,13 +419,63 @@ namespace tree {
 		typedef typename TreeNode<T>::iterator iterator;
 		typedef typename TreeNode<T>::node_iterator node_iterator;
 		typedef typename TreeNode<T>::child_iterator child_iterator;
+		typedef typename TreeNode<T>::node_const_iterator node_const_iterator;
+		typedef typename TreeNode<T>::child_const_iterator child_const_iterator;
 		typedef typename TreeNode<T>::sibling_iterator sibling_iterator;
 	private:
 		size_t count;
 		node_pointer root_;
 		node_pointer sentiel_; //
 		template<typename V>
-		friend std::ostream &operator<<(std::ostream &os,const Tree<V> &tree);
+		friend std::ostream &operator<<(std::ostream &os,const Tree<V> &tree);		
+
+		void copyTree(const Tree<T>& t) {
+			
+			node_pointer node = t.root_;
+			node_pointer n = NULL;
+			node_pointer parent = NULL;
+			if(node == NULL) return;
+
+			std::queue<node_pointer> q;
+			std::queue<node_pointer> p;
+			// push root
+			q.push(node);
+			// add root
+			n = new node_type(node->value_);
+			root_ = n;
+			sentiel_->addChild(n);
+			n->setParent(NULL);
+			count ++;
+			parent = n;
+			p.push(parent);
+
+			while(!q.empty()) {				
+				node  = q.front();
+				q.pop();
+
+				parent = p.front();
+				p.pop();
+
+				for(Tree<T>::child_const_iterator iter = t.child_const_begin(node->value_); iter != t.child_const_end(node->value_); ++iter) {
+					//std::cout << "add Child:" << *iter << std::endl;
+					
+					n = this->addChild(parent,*iter);
+					std::cout << "parent " << node->value_ << ",add Child:" << *iter << std::endl;
+					q.push(n);
+					p.push(n);
+				}
+			}
+		}
+		
+		node_pointer addChild(node_pointer parent,const_reference value)
+		{
+			node_pointer node;
+			node  = new node_type(value);
+			assert(parent != NULL);
+			parent->addChild(node);
+			count++;
+			return node;
+		}
 
 	public:
 		size_t size() const { return count; }
@@ -403,10 +484,35 @@ namespace tree {
 			sentiel_ = new node_type();
 		}
 
+		//copy a new tree
+		Tree(const Tree<T> &t) {
+			
+			count = 0;
+			root_ = NULL;
+			sentiel_ = new node_type();
+			
+			copyTree(t);
+		}
+
+		Tree<T>& operator=(const Tree<T>& t) {
+			if(this != &t) {
+				// delete this tree
+				node_pointer n,iter;
+				for(n = sentiel_->next, iter = n->next; iter != sentiel_; n = iter, iter = n->next)
+					delete n;
+				delete n;
+				
+				// copy new tree
+				copyTree();
+			}
+			return *this;
+		}
+
+
 		void getParent(const_reference value,T &v)
 		{
 			node_pointer p;
-			if(root_->getNode(value,p) && p->getParent()) {
+			if(root_->getNode(value,p,sentiel_) && p->getParent()) {
 				v =  p->getParent()->value_;
 			}
 		}
@@ -420,9 +526,12 @@ namespace tree {
 		iterator begin() {return sentiel_->node_begin();}
 		iterator end() {return sentiel_->node_end();}
 
+		iterator const_begin() const {return sentiel_->node_begin();}
+		iterator const_end() const {return sentiel_->node_end();}
+
 		child_iterator child_begin(const_reference value) {
 			node_pointer p;
-			if(sentiel_->getNode(value,p)) 
+			if(sentiel_->getNode(value,p,sentiel_)) 
 				return p->child_begin();
 			
 			else
@@ -432,15 +541,33 @@ namespace tree {
 
 		child_iterator child_end(const_reference value) {
 						node_pointer p;
-			if(sentiel_->getNode(value,p)) 
+						if(sentiel_->getNode(value,p,sentiel_)) 
 				return p->child_end();
 			else
 				return sentiel_->child_begin();
 		}
+
+		child_const_iterator child_const_begin(const_reference value) const {
+			node_pointer p;
+			if(sentiel_->getNode(value,p,sentiel_)) 
+				return p->child_const_begin();
+			
+			else
+				return sentiel_->child_const_begin();
+
+		}
+
+		child_const_iterator child_const_end(const_reference value) const {
+			node_pointer p;
+			if(sentiel_->getNode(value,p,sentiel_)) 
+				return p->child_const_end();
+			else
+				return sentiel_->child_const_begin();
+		}
 		
 		sibling_iterator sibling_begin(const_reference value) {
 			node_pointer p;
-			if(sentiel_->getNode(value,p)) 
+			if(sentiel_->getNode(value,p,sentiel_)) 
 				return p->sibling_begin();
 			
 			else
@@ -449,7 +576,7 @@ namespace tree {
 
 		sibling_iterator sibling_end(const_reference value) {
 			node_pointer p;
-			if(sentiel_->getNode(value,p)) 
+			if(sentiel_->getNode(value,p,sentiel_)) 
 				return p->sibling_end();
 			else
 				return sentiel_->sibling_begin();
@@ -478,14 +605,6 @@ namespace tree {
 			addChild(p,child);
 		}
 
-		void addChild(node_pointer parent,const_reference value)
-		{
-			node_pointer node;
-			node  = new node_type(value);
-			assert(parent != NULL);
-			parent->addChild(node);
-			count++;
-		}
 
 		void removeChild(node_pointer parent,const_reference value)
 		{
